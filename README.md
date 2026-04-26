@@ -1,165 +1,94 @@
-# Link Library Skill
+# linkslibrary skill
 
-Automatically categorize and save links from user messages into a curated markdown library.
+A personal link archiving skill for OpenClaw. Triggered automatically whenever a URL appears in a message, it fetches the page title, categorizes the link, and appends it to a local markdown library.
 
-## What It Does
+## Library file
 
-When you post a message containing URLs, this skill automatically:
-
-1. **Extracts URLs** from your message
-2. **Fetches page titles** for each URL
-3. **Classifies** them into categories based on your `links.md` file
-4. **Appends** entries to the correct category section with timestamps
-
-Links that can't be categorized go into the `## Unknown` section.
-
-## Installation
-
-### OpenClaw Workspace
-
-Copy the skill folder to your workspace:
-
-```bash
-# Workspace skills (per-agent)
-cp -r linkslibrary ~/.openclaw/workspace/skills/public/
-
-# Or shared skills (all agents on the machine)
-cp -r linkslibrary ~/.openclaw/skills/
+```
+<workspace>/linkslibrary/linkslibrary.md
 ```
 
-The skill will be available in the next session.
+Created automatically on first use. Never overwritten if it already exists.
 
-### Dependencies
-
-Install the required Python packages:
-
-```bash
-pip install beautifulsoup4 requests
-```
-
-## Usage
-
-### Automatic (Recommended)
-
-The skill loads automatically for each session. When you post a message containing URLs, the agent will automatically categorize and save them.
-
-### Manual
-
-You can also invoke the categorization script directly:
-
-```bash
-python3 scripts/categorize_link.py <url> [links.md_path]
-```
-
-Default `links.md_path` is `workspace/linkslibrary/links.md`.
-
-## Configuration
-
-### Link Library File
-
-Create or edit `workspace/linkslibrary/links.md` and add your categories as markdown headings:
+## Library format
 
 ```markdown
 ## Development
+* 2026-04-10 14:33 - [React Native Expo Documentation](https://docs.expo.dev/)
+
+## Fun Stuff
+
 ## Homelab
-## AI
+* 2026-04-26 16:31 - [I over-engineered my home lab on purpose, and it's the best decision I've made](https://www.xda-developers.com/...)
+
+## IA
+
 ## Second Brain
-## Unknown
-```
-
-The `## Unknown` section is required for links that don't match any category.
-
-### Category Matching
-
-Categories are matched by keyword search:
-- Category name (lowercased) must appear in the **URL** (domain/path) or **page title**
-- If no match, the link goes to `## Unknown`
-
-**Examples:**
-
-| Category | Matches |
-|----------|---------|
-| `## Development` | `https://docs.python.org/library/...`, "Python Development Guide" |
-| `## Homelab` | `https://unraid.com/`, "Home Server Setup" |
-| `## AI` | `https://openai.com/`, "Language Models" |
-
-## Output Format
-
-Each link entry is saved as:
-
-```markdown
-- YYYY-MM-DD HH:MM — URL - Page Title
-```
-
-**Example:**
-
-```markdown
-## AI
-- 2026-04-21 23:32 — https://www.lennysproductpass.com - Lenny's Product Pass
-- 2026-04-21 23:31 — https://github.com/karpathy/llm-wiki - llm-wiki · GitHub
-```
-
-## Features
-
-- **Duplicate detection**: Skips URLs already saved in `links.md`
-- **Auto-creation**: Creates `links.md` and `## Unknown` section if missing
-- **Error handling**: Continues processing if individual links fail
-- **User-Agent**: Proper HTTP headers for page fetching
-
-## Error Handling
-
-If title fetching fails (timeout, network error, invalid URL):
-- The URL itself is used as the title
-- Error is reported to stderr
-- Processing continues for other URLs
-
-## Skill Metadata
-
-```yaml
-name: linkslibrary
-always: true  # Loads for every session
-```
-
-The skill automatically loads for each OpenClaw session and will be invoked when URLs are detected in messages.
-
-## Example Workflow
-
-1. **Create categories** in `workspace/linkslibrary/links.md`:
-
-```markdown
-## AI
-## Development
-## Unknown
-```
-
-2. **Post a message** with URLs:
-
-> Check out these resources:
-> https://docs.openai.com/
-> https://github.com/openai/openai-python
-
-3. **Result** in `links.md`:
-
-```markdown
-## AI
-- 2026-04-22 14:45 — https://docs.openai.com/ - OpenAI Documentation
-- 2026-04-22 14:45 — https://github.com/openai/openai-python - openai/openai-python: OpenAI Python library
 
 ## Unknown
+* 2026-04-10 14:33 - [Duck Duck Go](https://duckduckgo.com)
 ```
 
-## License
+- **Categories** → `## ` H2 headers, always alpha-sorted
+- **Entries** → bullet points with timestamp + markdown link, time-sorted (newest at bottom)
+- **Timestamps** → local time (Europe/Madrid), 24h format `YYYY-MM-DD HH:MM`
+- **Title** → fetched from the page; omitted if unavailable
 
-MIT License - feel free to use, modify, and distribute.
+## Default categories
 
-## Contributing
+Development, Fun Stuff, Homelab, IA, Second Brain, Unknown
 
-Pull requests welcome! Enhancements ideas:
-- Better category matching (semantic similarity)
-- Automatic category suggestions
-- Export to JSON/CSV
-- Web UI for browsing links
+New categories are created automatically when you specify one that doesn't exist yet. `Unknown` is always present as a fallback.
 
----
+## How to use
 
-Built for [OpenClaw](https://github.com/openclaw/openclaw).
+Just send a URL — no command needed:
+
+```
+https://example.com
+```
+
+Optionally hint the category in the same message:
+
+```
+homelab: https://example.com
+```
+
+Multiple URLs in one message are all processed and confirmed in a single reply.
+
+## Confirmation format
+
+```
+✅ Saved [Title](url) → **Category**
+```
+
+One line per URL. Duplicate URLs are noted with ⚠️ and skipped.
+
+## Rules
+
+- **Never modifies existing entries** — append-only
+- **One entry per URL** — duplicates are detected and skipped
+- **No questions asked** — best-effort categorization, review `Unknown` later
+
+## Files
+
+```
+skills/linkslibrary/
+├── SKILL.md           ← skill definition + workflow instructions
+├── README.md          ← this file
+└── scripts/
+    └── add_link.py    ← handles file I/O (create, parse, append, deduplicate)
+```
+
+### add_link.py usage
+
+```bash
+python3 scripts/add_link.py \
+  --url "https://example.com" \
+  --title "Page Title"        \   # optional
+  --category "Homelab"        \   # optional, default: Unknown
+  --timestamp "2026-04-26 16:31"  # optional, default: now
+  --file "/path/to/linkslibrary.md"
+```
+
+Output: `OK:<category>` or `SKIP:duplicate`

@@ -1,72 +1,72 @@
 ---
 name: linkslibrary
-description: Automatically categorize and save links from user messages into a markdown library. Use when a user posts a message containing a URL/link. The skill extracts URLs from the message, fetches page titles, and classifies them into categories from workspace/linkslibrary/links.md (## headings). Links are appended to their category section with timestamp in this exact format - YYYY-MM-DD HH:MM — URL - Page Title - with unclassifiable links going to the ## Unknown section.
-metadata: { "openclaw": { "always": true } }
+description: Archive and categorize web links sent by the user. Triggers whenever a message contains one or more URLs (http:// or https:// links). Saves links to the personal links library with a timestamp, optional fetched title, and category. Use this skill any time the user sends a URL or a message that includes one or more web links — even when no explicit archiving request is made.
 ---
 
-# Link Library
+# Links Library
 
-Automatically categorize and save links from messages into a curated markdown library.
+## Library File
+
+`<workspace>/linkslibrary/linkslibrary.md`
+
+Resolve `<workspace>` from runtime context (`repo=...`). Currently: `~/.openclaw/workspace/linkslibrary/linkslibrary.md`
 
 ## Workflow
 
-When a user posts a message containing URL(s), this skill triggers to:
+For each URL detected in the message, execute these steps in order. Process all URLs before replying.
 
-1. **Extract URLs** from the message
-2. **Fetch page titles** for each URL
-3. **Parse categories** from `workspace/linkslibrary/links.md` (all ## headings)
-4. **Classify** each URL+title into the best matching category
-5. **Append** to `links.md` in the correct section with timestamp
+### 1. Fetch the page title
 
-## Category Matching Logic
+Use `web_fetch` on the URL. Extract the page `<title>` or the first H1 from the rendered content. If the fetch fails or no title is found, proceed with an empty title — do **not** skip the URL.
 
-Categories are matched by simple keyword matching:
-- Convert category name to lowercase
-- Check if it appears in the URL (domain/path) or page title
-- If no match, or matches multiple, default to `## Unknown`
+### 2. Read existing categories
 
-Examples:
-- `## Development` matches `https://docs.python.org/library/...` or "Python Development Guide"
-- `## Homelab` matches `https://unraid.com/` or "Home Server Setup"
-- `## Fun Stuff` matches `https://kottke.org` or "Interesting Links"
+Parse the `## ` headers from `linkslibrary.md` (skip this read if the file does not exist yet — the script will create it with defaults).
 
-## Execution
+### 3. Determine category
 
-Use the categorization script for each URL found in the user's message:
+- If the user provided a category in their message, use it (even if it's new).
+- Otherwise, use your judgment to match the URL + title against the existing categories. Choose the best fit. If no category clearly fits, use `Unknown`.
+
+### 4. Add the link
+
+Run the script with the resolved arguments:
 
 ```bash
-python3 scripts/categorize_link.py <url> [links.md_path]
+python3 <skill_dir>/scripts/add_link.py \
+  --url "<URL>" \
+  --title "<title or empty>" \
+  --category "<category>" \
+  --file "<workspace>/linkslibrary/linkslibrary.md"
 ```
 
-Default `links.md_path` is `workspace/linkslibrary/links.md`.
+`<skill_dir>` is the directory containing this SKILL.md.
 
-The script handles:
-- Duplicate detection: skips URLs already saved in links.md
-- Fetching page titles (with proper User-Agent)
-- Creating the links.md file if it doesn't exist
-- Adding the ## Unknown section if missing
-- Appending entries to the correct category section
-- Outputting JSON result with classification details
+Script output:
+- `OK:<category>` — link was added, category shows where it was stored (may differ from input if case-normalized).
+- `SKIP:duplicate` — URL already in the library; skip silently or note it in the reply.
 
-## Required Dependencies
+### 5. Reply
 
-The script requires:
-- `beautifulsoup4` - HTML parsing for title extraction
-- `requests` - HTTP client for fetching pages
+After processing all URLs, send a **single** confirmation reply in the **same channel** where the message arrived.
 
-Install with:
-```bash
-pip install beautifulsoup4 requests
+Format:
+```
+✅ Saved [Title](url) → **Category**
+✅ Saved [Another Title](url2) → **Category2**
 ```
 
-## Output Format
+- Start every line with `✅`
+- One line per URL
+- If the title is empty, use just the URL as the link text
+- If a URL was a duplicate, include it as: `⚠️ Already saved: <url>`
+- Keep the message to one line per link — no extra explanation needed
 
-Each link entry is saved as:
-```- YYYY-MM-DD HH:MM — URL - Page Title```
+## Rules
 
-Example:
-```- 2026-04-21 22:45 — https://docs.expo.dev/ - React Native Expo Documentation```
-
-## Error Handling
-
-If title fetching fails (timeout, network error, invalid URL), the URL itself is used as the title. The script continues processing other URLs and reports errors to stderr.
+- **Never modify existing entries.** Only append.
+- **One entry per URL.** The script handles deduplication.
+- **Create the file if absent.** The script initializes it with default categories.
+- **Multiple URLs in one message** → process each separately, confirm all in one reply.
+- **Do not ask questions.** Make a best-effort categorization and confirm.
+- **Local time** is used for timestamps (system clock, Europe/Madrid). The script applies this automatically.
